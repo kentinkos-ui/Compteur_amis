@@ -1,0 +1,538 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Compteur – Amis (v4)</title>
+  <style>
+    :root{--bg:#0e0f14;--card:#171a24;--line:#2a2f45;--txt:#fff;--mut:#aab1c7;--ok:#7cff9e;--bad:#ff6b6b}
+    body{font-family:system-ui,Arial,sans-serif;background:var(--bg);color:var(--txt);margin:0;padding:16px}
+    h1{font-size:20px;margin:0 0 8px}
+    .sub{color:var(--mut);font-size:12px;margin:0 0 14px;line-height:1.35}
+    .topbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+    .search{flex:1;min-width:180px;max-width:420px}
+    .chip{font-size:12px;color:var(--mut)}
+    .row{display:flex;align-items:center;gap:10px;margin:10px 0;padding:10px;border:1px solid var(--line);border-radius:12px;background:rgba(23,26,36,.75)}
+    .name{flex:1;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .time{width:130px;text-align:right;font-variant-numeric:tabular-nums}
+    button{padding:8px 10px;border-radius:10px;border:1px solid var(--line);background:#1f2436;color:var(--txt)}
+    button:active{opacity:.7}
+    .ok{border-color:rgba(124,255,158,.35)}
+    .danger{border-color:rgba(255,107,107,.35)}
+    .ghost{background:transparent}
+    .toolbar{display:flex;gap:10px;align-items:center;margin-top:12px;flex-wrap:wrap}
+    dialog{border:1px solid var(--line);border-radius:14px;background:var(--card);color:var(--txt);padding:0;width:min(560px,94vw)}
+    dialog::backdrop{background:rgba(0,0,0,.65)}
+    .dlgHead{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 12px;border-bottom:1px solid var(--line)}
+    .dlgBody{padding:12px 12px;display:grid;gap:10px}
+    .dlgFoot{padding:12px 12px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap}
+    label{font-size:12px;color:var(--mut)}
+    input, textarea{
+      width:100%;box-sizing:border-box;padding:10px;border-radius:10px;border:1px solid var(--line);
+      background:#101424;color:var(--txt)
+    }
+    textarea{min-height:110px;resize:vertical}
+    .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+    .hint{font-size:12px;color:var(--mut);line-height:1.35}
+    .mini{font-size:11px;color:var(--mut)}
+    .statsGrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .card{border:1px solid var(--line);border-radius:12px;padding:10px;background:rgba(16,20,36,.5)}
+    .k{color:var(--mut);font-size:12px}
+    .v{font-size:20px;font-weight:800;margin-top:4px;font-variant-numeric:tabular-nums}
+    .listDates{max-height:220px;overflow:auto;border:1px solid var(--line);border-radius:12px}
+    .dateRow{display:flex;justify-content:space-between;gap:10px;padding:10px;border-top:1px solid var(--line)}
+    .dateRow:first-child{border-top:none}
+    .pill{border:1px solid var(--line);border-radius:999px;padding:2px 8px;font-size:11px;color:var(--mut)}
+    @media (max-width:420px){
+      .grid3{grid-template-columns:1fr}
+      .statsGrid{grid-template-columns:1fr}
+      .time{width:120px}
+    }
+  
+    /* v4.1: meilleure lisibilité des prénoms sur mobile */
+    .row{display:grid;grid-template-columns:1fr auto;grid-template-areas:"name time" "actions actions";
+         align-items:center;gap:10px;margin:10px 0;padding:10px;border:1px solid var(--line);
+         border-radius:12px;background:rgba(23,26,36,.75)}
+    .name{grid-area:name;font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .time{grid-area:time;width:auto;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+    .row button{white-space:nowrap}
+    .row .actions{grid-area:actions;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+    @media (min-width: 700px){
+      .row{display:flex}
+      .name{flex:1}
+      .time{width:130px}
+      .row .actions{margin-left:auto}
+    }
+
+</style>
+</head>
+<body>
+<h1>Compteur d'amis (v4)</h1>
+<p class="sub">
+“Vu” remet à zéro <b>et enregistre la date</b>. “✏️” change jours/heures/minutes (sans calcul de date).
+“📊” affiche le nombre de fois où tu l’as vu (30/90/365 jours) + les dates.
+</p>
+
+<div class="topbar">
+  <input id="search" class="search" type="text" placeholder="Rechercher…">
+  <span id="meta" class="chip"></span>
+</div>
+
+<div id="list"></div>
+
+<div class="toolbar">
+  <button onclick="addPerson()">➕ Ajouter une personne</button>
+  <button class="ghost" onclick="bulkAdd()">📥 Ajouter plusieurs prénoms</button>
+  <button class="ghost" onclick="xfer()">⤓/⤒ Export / Import</button>
+  <button class="ghost" onclick="resetAll()">Réinitialiser tout</button>
+</div>
+
+<dialog id="editDlg">
+  <div class="dlgHead">
+    <strong id="editTitle">Modifier</strong>
+    <button onclick="closeEdit()">✕</button>
+  </div>
+  <div class="dlgBody">
+    <div class="hint">Tu modifies “depuis combien de temps tu ne l’as pas vu”. Exemple : 0 j 6 h 0 min.</div>
+    <div class="grid3">
+      <div>
+        <label for="d">Jours</label>
+        <input id="d" type="number" min="0" step="1" inputmode="numeric" placeholder="0">
+      </div>
+      <div>
+        <label for="h">Heures</label>
+        <input id="h" type="number" min="0" step="1" inputmode="numeric" placeholder="0">
+        <div class="mini">0–23 conseillé</div>
+      </div>
+      <div>
+        <label for="m">Minutes</label>
+        <input id="m" type="number" min="0" step="1" inputmode="numeric" placeholder="0">
+        <div class="mini">0–59 conseillé</div>
+      </div>
+    </div>
+    <div class="hint" id="preview"></div>
+  </div>
+  <div class="dlgFoot">
+    <button onclick="closeEdit()">Annuler</button>
+    <button class="ok" onclick="saveEdit()">OK</button>
+  </div>
+</dialog>
+
+<dialog id="statsDlg">
+  <div class="dlgHead">
+    <strong id="statsTitle">Stats</strong>
+    <button onclick="closeStats()">✕</button>
+  </div>
+  <div class="dlgBody">
+    <div class="statsGrid">
+      <div class="card"><div class="k">Vus sur 30 jours</div><div class="v" id="c30">0</div></div>
+      <div class="card"><div class="k">Vus sur 90 jours</div><div class="v" id="c90">0</div></div>
+      <div class="card"><div class="k">Vus sur 365 jours</div><div class="v" id="c365">0</div></div>
+      <div class="card"><div class="k">Dernière fois</div><div class="v" id="lastTxt">—</div></div>
+    </div>
+
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+      <div class="hint">Historique (plus récents en haut)</div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <span class="pill" id="histCount">0 entrées</span>
+        <button class="danger" onclick="clearHistory()">Effacer l'historique</button>
+        <button onclick="addDate()">📅 Ajouter une date</button>
+      </div>
+    </div>
+    <div class="listDates" id="dates"></div>
+
+    <div class="hint">Tout reste sur ton téléphone (local). Export/Import si tu veux transférer.</div>
+  </div>
+  <div class="dlgFoot">
+    <button onclick="closeStats()">Fermer</button>
+  </div>
+</dialog>
+
+<dialog id="bulkDlg">
+  <div class="dlgHead">
+    <strong>Ajouter plusieurs prénoms</strong>
+    <button onclick="closeBulk()">✕</button>
+  </div>
+  <div class="dlgBody">
+    <div class="hint">Un prénom par ligne (ou séparés par des virgules). Doublons ignorés.</div>
+    <textarea id="bulkText" placeholder="Tony
+Guilherme
+Abdou"></textarea>
+  </div>
+  <div class="dlgFoot">
+    <button onclick="closeBulk()">Annuler</button>
+    <button class="ok" onclick="doBulkAdd()">Ajouter</button>
+  </div>
+</dialog>
+
+<dialog id="xferDlg">
+  <div class="dlgHead">
+    <strong>Exporter / Importer</strong>
+    <button onclick="closeXfer()">✕</button>
+  </div>
+  <div class="dlgBody">
+    <div class="hint">Exporter : copie un texte. Importer : colle-le et valide.</div>
+    <textarea id="xferText" placeholder="Colle ici le texte d’export…"></textarea>
+  </div>
+  <div class="dlgFoot">
+    <button onclick="doExport()">Exporter</button>
+    <button class="ok" onclick="doImport()">Importer</button>
+  </div>
+</dialog>
+
+<script>
+const KEY_V4 = "last_seen_v4";
+const KEY_V3 = "last_seen_simple_v3";
+let people = [];
+const SEEDED_PEOPLE = [{"id": "f9bb3f19c14ea19b84d4613a", "name": "Abdou", "lastSeen": 1775678400000, "createdAt": 1767460069690, "history": [1775678400000, 1774728000000, 1774221660200, 1773829669640, 1773538130557, 1772144389862, 1771467212172, 1770945815993, 1770507693268, 1770431212727, 1769732211459, 1769337986987, 1769006204279, 1768049961269, 1767836403660]}, {"id": "8a867229a32819b84d4613a", "name": "Alex", "lastSeen": 1775851200000, "createdAt": 1767460069690, "history": [1775851200000, 1775678400000, 1775246400000, 1774728000000, 1774555200000, 1774221661351, 1773829670959, 1773538131658, 1772217452795, 1772144392738, 1771467217229, 1771198955343, 1770942871774, 1770507694194, 1770431213718, 1769720362575, 1769338047195, 1769006205120, 1768951449540, 1768049962562, 1767831593354, 1767565602717]}, {"id": "ecdebe9b6ba3419b85c7cde8", "name": "Alexis", "lastSeen": 1774051365341, "createdAt": 1767476022760, "history": [1774051365341]}, {"id": "30eaea87af3c119b84d4613a", "name": "Ange", "lastSeen": 1775678400000, "createdAt": 1767460069690, "history": [1775678400000, 1773829672956, 1773538133558, 1769006207074]}, {"id": "5697b7d9f6e49819b84d4613a", "name": "Armand", "lastSeen": 1774728000000, "createdAt": 1767460069690, "history": [1774728000000, 1774555200000, 1773829674950, 1770939431683, 1769732214431, 1768049966018]}, {"id": "ab1c699ac20fd819b84d4613a", "name": "Arno", "lastSeen": 1775246400000, "createdAt": 1767460069690, "history": [1775246400000, 1774051375800, 1771283412091, 1770064906101, 1770064875418, 1769212825016]}, {"id": "2c916283638b419b85c7eb9f", "name": "Aurel", "lastSeen": 1766858429605, "createdAt": 1767476030367, "history": []}, {"id": "67577335b9a7319b84d4613a", "name": "Cauvin", "lastSeen": 1775678400000, "createdAt": 1767460069690, "history": [1775678400000, 1775246400000, 1774728000000, 1774254603901, 1773829677919, 1773538138867, 1770507698791, 1769337992106, 1768049975010]}, {"id": "bf12ce6fa6368819b84d4613a", "name": "Elisa", "lastSeen": 1775678400000, "createdAt": 1767460069690, "history": [1775678400000, 1769337995545]}, {"id": "e6e0896cc91a519b84d4613a", "name": "Ferreol", "lastSeen": 1775678400000, "createdAt": 1767460069690, "history": [1775678400000, 1775505600000, 1774728000000, 1770507701338, 1769337997897, 1768049977390]}, {"id": "654edc79796f719b84d4613a", "name": "Gabin", "lastSeen": 1770507702222, "createdAt": 1767460069690, "history": [1770507702222, 1769732218622, 1769337999043, 1769006225680, 1768951461730, 1768049978691]}, {"id": "1d3c033d242fc819b84d4613a", "name": "Gui", "lastSeen": 1774221673747, "createdAt": 1767460069690, "history": [1774221673747, 1773829680797, 1773442472672, 1772217457745, 1771722333067, 1771198961880, 1770507704020, 1770431220579, 1769720375941, 1769338000937, 1768675574860, 1768049980094]}, {"id": "94c5ddd96e7d419b84d4613a", "name": "Guiyom", "lastSeen": 1775678400000, "createdAt": 1767460069690, "history": [1775678400000, 1774728000000, 1773829682711, 1768675577885, 1768049981238]}, {"id": "5e9307aed53b219b84d4613a", "name": "Helias", "lastSeen": 1775678400000, "createdAt": 1767460069690, "history": [1775678400000, 1774728000000, 1773829684998, 1768675576998, 1768049982708]}, {"id": "a7eb66b3c57e819b8555120d", "name": "Imanol", "lastSeen": 1767467754253, "createdAt": 1767468503565, "history": [1767476014810]}, {"id": "0a471f9d92c0d19bf4c4da91", "name": "Karl", "lastSeen": 1775678400000, "createdAt": 1769338100368, "history": [1775678400000, 1774221676129, 1773829687409, 1771722336226, 1771353427940, 1770507708389, 1770431223619, 1769338114173]}, {"id": "e528ee5efca22819b84d4613a", "name": "Kiki", "lastSeen": 1770945806348, "createdAt": 1767460069690, "history": [1770945806348, 1769006230967]}, {"id": "80526077d3a8c19b84d4613a", "name": "Léa E", "lastSeen": 1774127158627, "createdAt": 1767460069690, "history": [1774127158627, 1773604724238, 1773538146378, 1771118315355, 1769338006679, 1769127691390]}, {"id": "0fe718d53b48c19b84d4613a", "name": "Léa Z", "lastSeen": 1759657065311, "createdAt": 1767460069690, "history": []}, {"id": "cfe8f280bb9bf19b84d4613a", "name": "Léna", "lastSeen": 1772903882685, "createdAt": 1767460069690, "history": [1772903882685, 1771118317955, 1770575209382, 1769338013562]}, {"id": "2215e5c434df4819b84d4613a", "name": "Lilia", "lastSeen": 1769338017987, "createdAt": 1767460069690, "history": [1769338017987]}, {"id": "10e0d3fa3b64919b84d4613a", "name": "Mael", "lastSeen": 1775851200000, "createdAt": 1767460069690, "history": [1775851200000, 1775678400000, 1775592000000, 1774728000000, 1773829691324, 1773538150003, 1772144410289, 1771722399477, 1770939470938, 1770507714781, 1770431226781, 1769732225907, 1769720370186, 1769338019865, 1769006234858, 1768951466984, 1768049987306, 1767836417595]}, {"id": "4f8638fae62f719b84d4613a", "name": "Quent", "lastSeen": 1775678400000, "createdAt": 1767460069690, "history": [1775678400000, 1774728000000, 1770507715959, 1769338021801, 1768675584706, 1768049988116]}, {"id": "72568e5a6095f19b84d4613a", "name": "Rafi", "lastSeen": 1773829693303, "createdAt": 1767460069690, "history": [1773829693303, 1771722404606, 1770507717444]}, {"id": "da8f71cebfb3319b84d4613a", "name": "Raph", "lastSeen": 1769338028279, "createdAt": 1767460069690, "history": [1769338028279]}, {"id": "3626253dff1de19b84d4613a", "name": "Roméo", "lastSeen": 1775678400000, "createdAt": 1767460069690, "history": [1775678400000, 1774221685870, 1773829695486, 1770939477099, 1770507722936, 1770431231840, 1769732229773, 1769338026301, 1768049996889, 1767836421128]}, {"id": "1583dbf255f2b19b84d4613a", "name": "Rosalie", "lastSeen": 1769338031054, "createdAt": 1767460069690, "history": [1769338031054]}, {"id": "c28125c24995b19b84d4613a", "name": "Sacha", "lastSeen": 1775678400000, "createdAt": 1767460069690, "history": [1775678400000, 1774728000000, 1770939483408, 1770507725413, 1769338032718, 1768050002972, 1767836423711]}, {"id": "b43c62c67dee8819b84d4613a", "name": "Sarah", "lastSeen": 1769720324354, "createdAt": 1767460069690, "history": [1769720324354, 1769338034313, 1768675606400]}, {"id": "5f4c9053e3d84819b84d4613a", "name": "Suzie", "lastSeen": 1775851200000, "createdAt": 1767460069690, "history": [1775851200000, 1769732233815, 1768050014820]}, {"id": "836ec0d03c8fd19b84d4613a", "name": "Tim", "lastSeen": 1775851200000, "createdAt": 1767460069690, "history": [1775851200000, 1775678400000, 1775246400000, 1774728000000, 1774555200000, 1774221689511, 1773829702044, 1773442481117, 1773094627012, 1772217464100, 1770507727683, 1770431236790, 1769338037486, 1769006241690, 1768675609814, 1768050016677]}, {"id": "e845273cc67da19b84edf362", "name": "Tony", "lastSeen": 1775851200000, "createdAt": 1767461745505, "history": [1775851200000, 1774221691124, 1774051413954, 1773829702907, 1773604727491, 1773264717184, 1771785867616, 1770507728769, 1769338041643, 1767476010444]}];
+
+const $ = (id) => document.getElementById(id);
+const searchEl = $("search");
+const listEl = $("list");
+const metaEl = $("meta");
+
+const editDlg = $("editDlg");
+const inpD = $("d"), inpH = $("h"), inpM = $("m"), preview = $("preview");
+let editIndex = null;
+
+const statsDlg = $("statsDlg");
+const statsTitle = $("statsTitle");
+const c30 = $("c30"), c90 = $("c90"), c365 = $("c365"), lastTxt = $("lastTxt");
+const datesEl = $("dates");
+const histCount = $("histCount");
+let statsIndex = null;
+
+const bulkDlg = $("bulkDlg");
+const bulkText = $("bulkText");
+
+const xferDlg = $("xferDlg");
+const xferText = $("xferText");
+
+function uid(){ return Math.random().toString(16).slice(2) + Date.now().toString(16); }
+function now(){ return Date.now(); }
+function save(){ localStorage.setItem(KEY_V4, JSON.stringify(people)); }
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function clampInt(v){ const n = Math.floor(Number(v)); return Number.isFinite(n) && n >= 0 ? n : 0; }
+
+function load(){
+  const raw = localStorage.getItem(KEY_V4);
+  if(raw){
+    try{
+      const arr = JSON.parse(raw);
+      if(Array.isArray(arr)){
+        people = arr.map(p => ({
+          id: String(p.id || uid()),
+          name: String(p.name || "").trim(),
+          lastSeen: Number(p.lastSeen || now()),
+          createdAt: Number(p.createdAt || now()),
+          history: Array.isArray(p.history) ? p.history.map(Number).filter(Number.isFinite) : []
+        })).filter(p => p.name.length);
+        return;
+      }
+    }catch(e){}
+  }
+
+  const raw3 = localStorage.getItem(KEY_V3);
+  if(raw3){
+    try{
+      const arr3 = JSON.parse(raw3);
+      if(Array.isArray(arr3) && arr3.length){
+        people = arr3.map(p => ({
+          id: uid(),
+          name: String(p.name || "").trim(),
+          lastSeen: Number(p.lastSeen || now()),
+          createdAt: now(),
+          history: []
+        })).filter(p => p.name.length);
+        save();
+        return;
+      }
+    }catch(e){}
+  }
+
+  // Premier lancement : on part des données intégrées, puis ensuite tout se sauvegarde normalement.
+  people = SEEDED_PEOPLE.map(p => ({
+    id: String(p.id || uid()),
+    name: String(p.name || "").trim(),
+    lastSeen: Number(p.lastSeen || now()),
+    createdAt: Number(p.createdAt || now()),
+    history: Array.isArray(p.history) ? p.history.map(Number).filter(Number.isFinite) : []
+  })).filter(p => p.name.length);
+
+  save();
+}
+
+function sortPeople(){ people.sort((a,b)=>a.name.localeCompare(b.name, 'fr', {sensitivity:'base'})); }
+
+function format(ms){
+  const totalMinutes = Math.max(0, Math.floor(ms/60000));
+  const d = Math.floor(totalMinutes/1440);
+  const h = Math.floor((totalMinutes%1440)/60);
+  const m = totalMinutes%60;
+  if(d >= 7) return d + " j";
+  return d + " j " + h + " h " + m + " min";
+}
+
+function render(){
+  const q = (searchEl.value || "").trim().toLowerCase();
+  const filtered = people.filter(p => p.name.toLowerCase().includes(q));
+  metaEl.textContent = people.length ? (filtered.length + " / " + people.length) : "";
+
+  if(!filtered.length){
+    listEl.innerHTML = `<div class="sub">${people.length ? "Aucun résultat." : "Ajoute quelqu’un avec “➕” (ou 📥)."} </div>`;
+    return;
+  }
+
+  const t = now();
+  listEl.innerHTML = filtered.map((p) => {
+    const idx = people.findIndex(x => x.id === p.id);
+    return `
+      <div class="row">
+        <div class="name">${escapeHtml(p.name)}</div>
+        <div class="time">${escapeHtml(format(t - p.lastSeen))}</div>
+        <div class="actions"><button class="ok" onclick="seen(${idx})">Vu</button>
+        <button onclick="openEdit(${idx})">✏️</button>
+        <button onclick="openStats(${idx})">📊</button>
+        <button class="danger" onclick="delPerson(${idx})">🗑️</button></div>
+      </div>
+    `;
+  }).join("");
+}
+
+function addPerson(){
+  const name = prompt("Prénom ?");
+  if(!name) return;
+  addByName(name);
+}
+
+function addByName(name){
+  const n = String(name).trim();
+  if(!n) return;
+  const exists = people.some(p => p.name.toLowerCase() === n.toLowerCase());
+  if(exists) return;
+  const t = now();
+  people.push({id:uid(), name:n, lastSeen:t, createdAt:t, history:[]});
+  sortPeople();
+  /* no resort */ sortPeople(); save(); render();
+}
+
+function seen(i){
+  const t = now();
+  const p = people[i];
+  p.lastSeen = t;
+  p.history = Array.isArray(p.history) ? p.history : [];
+  p.history.unshift(t);
+  if(p.history.length > 2000) p.history.length = 2000;
+
+  /* no resort */ sortPeople(); save(); render();
+}
+
+function delPerson(i){
+  if(!confirm("Supprimer ?")) return;
+  people.splice(i,1);
+  sortPeople(); save(); render();
+}
+
+// Edit elapsed
+function getElapsedParts(ts){
+  const totalMinutes = Math.max(0, Math.floor((now() - ts)/60000));
+  const d = Math.floor(totalMinutes/1440);
+  const h = Math.floor((totalMinutes%1440)/60);
+  const m = totalMinutes%60;
+  return {d,h,m};
+}
+
+function openEdit(i){
+  editIndex = i;
+  const p = people[i];
+  const parts = getElapsedParts(p.lastSeen);
+  inpD.value = parts.d; inpH.value = parts.h; inpM.value = parts.m;
+  updatePreview();
+  $("editTitle").textContent = "Modifier : " + p.name;
+  editDlg.showModal();
+  setTimeout(() => inpD.focus(), 0);
+}
+
+function closeEdit(){ editDlg.close(); editIndex = null; }
+
+function updatePreview(){
+  const d = clampInt(inpD.value), h = clampInt(inpH.value), m = clampInt(inpM.value);
+  const totalMs = ((d*24 + h)*60 + m) * 60000;
+  const when = new Date(now() - totalMs);
+  preview.textContent = "Ça fixera “dernière fois vu” à : " + when.toLocaleString();
+}
+inpD.addEventListener("input", updatePreview);
+inpH.addEventListener("input", updatePreview);
+inpM.addEventListener("input", updatePreview);
+
+function saveEdit(){
+  if(editIndex === null) return;
+  const d = clampInt(inpD.value), h = clampInt(inpH.value), m = clampInt(inpM.value);
+  const totalMs = ((d*24 + h)*60 + m) * 60000;
+  people[editIndex].lastSeen = now() - totalMs;
+  /* no resort */ sortPeople(); save(); render();
+  closeEdit();
+}
+
+// Stats
+function countInWindow(history, days){
+  const since = now() - days*24*60*60000;
+  return (history || []).filter(t => t >= since).length;
+}
+
+function openStats(i){
+  statsIndex = i;
+  const p = people[i];
+  statsTitle.textContent = "Stats : " + p.name;
+
+  const hist = Array.isArray(p.history) ? p.history : [];
+  c30.textContent = countInWindow(hist, 30);
+  c90.textContent = countInWindow(hist, 90);
+  c365.textContent = countInWindow(hist, 365);
+  lastTxt.textContent = new Date(p.lastSeen).toLocaleString();
+  histCount.textContent = hist.length + " entrées";
+
+  if(!hist.length){
+    datesEl.innerHTML = `<div class="dateRow"><div class="k">Aucune date enregistrée (clique “Vu” pour commencer).</div></div>`;
+  } else {
+    const maxShow = 200;
+    const slice = hist.slice(0, maxShow);
+    datesEl.innerHTML = slice.map((t) => {
+      const d = new Date(t);
+      return `<div class="dateRow">
+        <div>${escapeHtml(d.toLocaleDateString())}</div>
+        <div class="k">${escapeHtml(d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}))}</div>
+      </div>`;
+    }).join("") + (hist.length > maxShow ? `<div class="dateRow"><div class="k">… +${hist.length-maxShow} autres</div></div>` : "");
+  }
+
+  statsDlg.showModal();
+}
+
+function closeStats(){ statsDlg.close(); statsIndex = null; }
+
+function clearHistory(){
+  if(statsIndex === null) return;
+  if(!confirm("Effacer l'historique de cette personne ?")) return;
+  people[statsIndex].history = [];
+  save();
+  openStats(statsIndex);
+}
+
+
+function addDate(){
+  if(statsIndex === null) return;
+  const input = prompt("Date (YYYY-MM-DD)");
+  if(!input) return;
+  const d = new Date(input + "T20:00:00");
+  if(isNaN(d.getTime())) return alert("Date invalide");
+  const ts = d.getTime();
+  const p = people[statsIndex];
+  p.history = Array.isArray(p.history) ? p.history : [];
+  p.history.unshift(ts);
+  p.history = Array.from(new Set(p.history)).filter(Number.isFinite).sort((a,b)=>b-a).slice(0,2000);
+  if(ts > p.lastSeen) p.lastSeen = ts;
+  save();
+  openStats(statsIndex);
+  render();
+}
+
+// Bulk add
+function bulkAdd(){
+  bulkText.value = "";
+  bulkDlg.showModal();
+  setTimeout(() => bulkText.focus(), 0);
+}
+function closeBulk(){ bulkDlg.close(); }
+
+function doBulkAdd(){
+  const raw = bulkText.value || "";
+  const parts = raw.split(/[\n,]/).map(s => s.trim()).filter(Boolean);
+  let added = 0;
+
+  parts.forEach(n => {
+    const exists = people.some(p => p.name.toLowerCase() === n.toLowerCase());
+    if(!exists){
+      const t = now();
+      people.push({id:uid(), name:n, lastSeen:t, createdAt:t, history:[]});
+  sortPeople();
+      added++;
+    }
+  });
+
+  /* no resort */ sortPeople(); save(); render();
+  closeBulk();
+  if(!added) alert("Aucun nouveau prénom ajouté (doublons ?).");
+}
+
+// Export/Import
+function xfer(){
+  xferText.value = "";
+  xferDlg.showModal();
+}
+function closeXfer(){ xferDlg.close(); }
+
+function doExport(){
+  const payload = btoa(unescape(encodeURIComponent(JSON.stringify({ v: 4, exportedAt: now(), people }))));
+  xferText.value = payload;
+  xferText.select();
+  try{ document.execCommand("copy"); }catch(e){}
+  alert("Export copié (si autorisé).");
+}
+
+function doImport(){
+  const raw = (xferText.value || "").trim();
+  if(!raw) return alert("Colle un export d’abord.");
+  try{
+    const json = decodeURIComponent(escape(atob(raw)));
+    const obj = JSON.parse(json);
+    if(!obj || obj.v !== 4 || !Array.isArray(obj.people)) return alert("Format non reconnu.");
+
+    const incoming = obj.people.map(p => ({
+      id: String(p.id || uid()),
+      name: String(p.name || "").trim(),
+      lastSeen: Number(p.lastSeen || now()),
+      createdAt: Number(p.createdAt || now()),
+      history: Array.isArray(p.history) ? p.history.map(Number).filter(Number.isFinite) : []
+    })).filter(p => p.name.length);
+
+    // merge by name
+    const map = new Map(people.map(p => [p.name.toLowerCase(), p]));
+    let added = 0;
+    for(const p of incoming){
+      const key = p.name.toLowerCase();
+      if(!map.has(key)){
+        people.push(p); map.set(key,p); added++;
+      } else {
+        const cur = map.get(key);
+        cur.lastSeen = Math.max(cur.lastSeen, p.lastSeen);
+        const s = new Set([...(cur.history||[]), ...(p.history||[])]);
+        cur.history = Array.from(s).filter(Number.isFinite).sort((a,b)=>b-a).slice(0,2000);
+      }
+    }
+    /* no resort */ sortPeople(); save(); render();
+    closeXfer();
+    alert("Import OK. Ajouts: " + added);
+  }catch(e){
+    alert("Import impossible : texte invalide.");
+  }
+}
+
+// Global
+function resetAll(){
+  if(!confirm("Tout remettre à zéro maintenant ?")) return;
+  const t = now();
+  people = people.map(p => ({...p, lastSeen:t}));
+  sortPeople();
+  sortPeople(); save(); render();
+}
+
+searchEl.addEventListener("input", render);
+setInterval(render, 10000);
+
+load();
+sortPeople();
+render();
+</script>
+</body>
+</html>
